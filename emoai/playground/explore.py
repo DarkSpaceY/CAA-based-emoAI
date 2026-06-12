@@ -20,19 +20,20 @@ COLOR_RED = "\033[91m"
 COLOR_YELLOW = "\033[93m"
 COLOR_BLUE = "\033[94m"
 COLOR_MAGENTA = "\033[95m"
+COLOR_DIM = "\033[2m"
 
-BAR_WIDTH = 12
+BAR_WIDTH = 20
 HORMONE_COLORS = {
     "DA": COLOR_GREEN, "SE": COLOR_BLUE, "OX": COLOR_MAGENTA,
     "COR": COLOR_RED, "NE": COLOR_YELLOW,
 }
 
 DIRECTION_LABELS = {
-    "DA": ("↑ 愉悦/动力", "↓ 低落/无趣"),
-    "SE": ("↑ 满足/平静", "↓ 焦虑/不安"),
-    "OX": ("↑ 信任/亲密", "↓ 疏离/冷漠"),
-    "COR": ("↑ 紧张/恐惧", "↓ 放松/安全"),
-    "NE": ("↑ 警觉/专注", "↓ 疲倦/放松"),
+    "DA": ("愉悦/动力 ↑", "低落/无趣 ↓"),
+    "SE": ("满足/平静 ↑", "焦虑/不安 ↓"),
+    "OX": ("信任/亲密 ↑", "疏离/冷漠 ↓"),
+    "COR": ("紧张/恐惧 ↑", "放松/安全 ↓"),
+    "NE": ("警觉/专注 ↑", "疲倦/放松 ↓"),
 }
 
 
@@ -42,11 +43,24 @@ def _make_bar(val: float) -> str:
     return "█" * filled + "░" * (BAR_WIDTH - filled)
 
 
-def _hormone_bar(name: str, val: float) -> str:
+def _hormone_line(name: str, val: float, marker: str) -> str:
+    """返回格式统一的单行激素显示，长度固定。"""
     color = HORMONE_COLORS.get(name, COLOR_RESET)
     bar = _make_bar(val)
-    direction = DIRECTION_LABELS[name][0] if val > 0.55 else DIRECTION_LABELS[name][1] if val < 0.45 else ""
-    return f"  [{color}{name}{COLOR_RESET}] {color}{bar}{COLOR_RESET} {val:.2f}  {direction}"
+    pct = f"{val:.2f}".rjust(5)
+    if val > 0.55:
+        direction = DIRECTION_LABELS[name][0]
+    elif val < 0.45:
+        direction = DIRECTION_LABELS[name][1]
+    else:
+        direction = "⚌  平衡  ⚌"
+    return (
+        f"  {marker} "
+        f"[{color}{name}{COLOR_RESET}] "
+        f"{color}{bar}{COLOR_RESET} "
+        f"{pct}  "
+        f"{COLOR_DIM}{direction}{COLOR_RESET}"
+    )
 
 
 def clear_screen():
@@ -125,19 +139,26 @@ def run(model, tokenizer, reader, engine, args, config: dict):
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
 
+    def _rl(text: str):
+        """raw mode 下 print，用 \\r\\n 替代 \\n 防止列偏移"""
+        sys.stdout.write(text + '\r\n')
+        sys.stdout.flush()
+
     try:
         tty.setraw(sys.stdin)
 
         while True:
             clear_screen()
-            print(f"{COLOR_CYAN}EmoAI 激素沙盘{COLOR_RESET}")
-            print(f"  {COLOR_YELLOW}Prompt:{COLOR_RESET} \"{prompt_text}\"\n")
+            _rl(f"  {COLOR_CYAN}EmoAI 激素沙盘{COLOR_RESET}")
+            _rl(f"  {COLOR_DIM}Prompt:{COLOR_RESET} \"{prompt_text}\"")
+            _rl('')
 
             for i, (short, full) in enumerate(zip(SHORT_NAMES, HORMONE_NAMES)):
                 marker = "▸" if i == selected_idx else " "
-                bar_str = _hormone_bar(short, levels[full])
-                print(f" {marker}{bar_str}")
+                line = _hormone_line(short, levels[full], marker)
+                _rl(line)
 
+            # 汇总方向
             active_dirs = []
             for short, full in zip(SHORT_NAMES, HORMONE_NAMES):
                 v = levels[full]
@@ -146,18 +167,21 @@ def run(model, tokenizer, reader, engine, args, config: dict):
                 elif v < 0.45:
                     active_dirs.append(f"{short}↓")
             if active_dirs:
-                print(f"\n  {COLOR_YELLOW}方向:{COLOR_RESET} {'  '.join(active_dirs)}")
+                dir_str = "  ".join(active_dirs)
+                _rl('')
+                _rl(f"  {COLOR_DIM}主导方向:{COLOR_RESET} {dir_str}")
 
-            print(f"\n{COLOR_GREEN}> {response}{COLOR_RESET}")
+            _rl('')
+            _rl(f"{COLOR_GREEN}> {response}{COLOR_RESET}")
 
-            print(f"\n{COLOR_CYAN}Controls:{COLOR_RESET} [1-5] 选择激素  "
-                  f"[{COLOR_GREEN}↑{COLOR_RESET}/{COLOR_RED}↓{COLOR_RESET}] +/-0.1  "
-                  f"[Enter] 重新生成  [q] 退出")
+            _rl('')
+            _rl(f"{COLOR_DIM}Controls: [1-5] 选激素  [↑/↓] +-0.1  [Enter] 重生成  [q] 退出{COLOR_RESET}")
 
             ch = sys.stdin.read(1)
 
             if ch == "q":
-                print(f"\n{COLOR_GREEN}退出沙盘模式。{COLOR_RESET}")
+                _rl('')
+                _rl(f"{COLOR_GREEN}退出沙盘模式。{COLOR_RESET}")
                 break
             elif ch == "\r" or ch == "\n":
                 engine.set_hormone_levels(levels)

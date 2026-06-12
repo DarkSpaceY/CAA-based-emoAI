@@ -72,8 +72,10 @@ def get_output_logits(model, tokenizer, engine, user_input: str,
     engine.set_hormone_levels(levels)
     engine.enable()
 
-    assistant_start = find_assistant_start_pos(tokenizer, messages)
-    engine.set_assistant_start_pos(assistant_start)
+    # 单次前向传播不走 decode 阶段，assistant_start_pos 会切割出空区间。
+    # 临时置 0 确保所有 token 都被引导，算完恢复。
+    orig_pos = engine._assistant_start_pos
+    engine._assistant_start_pos = 0
 
     inputs = tokenizer.apply_chat_template(
         messages, tokenize=True, add_generation_prompt=True,
@@ -82,6 +84,8 @@ def get_output_logits(model, tokenizer, engine, user_input: str,
 
     with torch.no_grad():
         outputs = model(**inputs)
+
+    engine._assistant_start_pos = orig_pos
 
     logits = outputs.logits[0, -1, :].float()
     return logits
