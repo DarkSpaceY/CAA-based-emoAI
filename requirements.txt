@@ -1,0 +1,6 @@
+torch>=2.0
+transformers>=4.40
+tqdm>=4.0
+pyyaml>=6.0
+psutil>=5.0
+accelerate
